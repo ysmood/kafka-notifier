@@ -7,20 +7,51 @@ do the consumer right (such as handle the offset, recovery, failures, etc correc
 It's better to create a project to handle the theory part and let other
 projects focus on their business logic, with this project other projects don't have to include
 any kafka library, the only thing for them is to create http handler to handle the event they
-interested in.
+interested in. We can call it service as a library.
 
 For the browser, you can use [sock.js](https://github.com/sockjs/sockjs-client) to connect to
 this service to subscribe events.
 
 ```text
-          publish topic         subscribe topics                   http request
-serviceA ---------------> kafka -----------------> kafka-notifier --------------> serviceC
-                            ^                            ^
-           publish topic    |                            | websocket
-serviceB -------------------+                         browser
+Traditional way for one service to notify another:
+
+               http request
+    serviceA --------------> serviceC (serviceA and serviceB have to be aware of serviceC)
+       ^                        ^
+       | websocket              |
+    browser                     | http request
+       | websocket              |
+       v                        |
+    serviceB --------------------
+
+    * If serviceA depends on ServiceC and ServiceC depends on some part of serviceA, request loop lock can happen.
+    * Same event have to actively send to all services that subscribe the event.
+
+
+With kafka:
+
+                                    subscribe topics
+                                +--------------------- serviceC
+                                |
+              publish topic     v      subscribe topics
+    serviceA ---------------> kafka <-------------------- serviceD (browser can't connect kafka directly)
+                                ^                            ^
+               publish topic    |                            | websocket
+    serviceB -------------------+                         browser
+
+
+
+With kafka-notifier:
+
+              publish topic         subscribe topics                   http request
+    serviceA ---------------> kafka -----------------> kafka-notifier --------------> serviceC
+                                ^                            ^
+               publish topic    |                            | websocket
+    serviceB -------------------+                         browser
 ```
 
-When kafka-notifier starts it will read the yaml config file for the proxy rules.
+When kafka-notifier starts it will read the yaml config file for the proxy rules, the service
+itself is stateless, no database is required.
 
 For example the serviceA publishes topic `payment-done { id, card_token }`,
 the browser and the serviceC both want to subscribe this topic, of cause we don't want to
